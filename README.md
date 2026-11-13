@@ -4,7 +4,7 @@ A cute companion that lives on the car dashboard and reacts to the way you drive
 
 ## Firmware
 
-`firmware/CarCompanion/CarCompanion.ino` is the Arduino sketch.
+`firmware/CarCompanion/CarCompanion.ino` is the Arduino sketch; the face is drawn procedurally by `CarFace.h` next to it.
 
 - Board: Seeed XIAO
 - Display: SSD1306 128x64 OLED (I2C, address 0x3C)
