@@ -23,17 +23,20 @@ restarts the companion with the new code. Compile errors show on the screen.
 ## What you can do on the page
 
 - **Scripted drives**: calm city driving, a hard launch, a hard brake, a lane
-  change, a track corner, a roundabout, a bumpy road, starting up on a hill
+  change, a track corner, a roundabout, potholes and a cobbled street, starting up on a hill
   and a tilted mount. Each starts parked so the wake-up animation and the
   startup calibration happen with the car still.
 - **Drive it**: arrow keys or WASD (hold-to-press buttons on a phone). A small
-  car model turns gas, brake and steering into g-forces.
+  car model turns gas, brake and steering into g-forces. Pick a family car
+  (0.5 g, fades with speed) or a sporty one (0.85 g).
 - **g-force pad**: drag a dot to set forward and sideways g directly. The
   dashed square is the sketch's 0.3 g trigger.
 - **Sensor and mounting**: lean or twist the companion on the dash, flip an
   axis, change sensor noise and road roughness.
 - Speed from 0.25x to 8x, pause, and power cycle.
-- A 30-second trace of sensor X and Y, with dots where the sketch actually
+- The companion's frame bounces with the road's vertical g, so you can see
+  whether the face reacts in sync.
+- A 30-second trace of sensor X, Y and Z, with dots where the sketch actually
   read the sensor, and a strip of which face was on screen.
 - The serial monitor.
 

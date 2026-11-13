@@ -1,5 +1,5 @@
 import { Firmware, pixelAt, frameLabel } from './engine.js';
-import { SCENARIOS, DEFAULT_SETTINGS, scenarioAt, scenarioDuration, Car, Sensor } from './world.js';
+import { SCENARIOS, DEFAULT_SETTINGS, CARS, scenarioAt, scenarioDuration, Car, Sensor } from './world.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -116,6 +116,7 @@ function powerOn() {
     S.sensor = new Sensor(st, 7);
     S.traceSensor = new Sensor(st, 99);
     S.samples = [];
+    S.car.spec = CARS[S.carType] || CARS.family;
     S.car.reset();
     S.scenarioSpeed = 0; S.scenarioLastT = 0;
     S.history = []; S.faces = []; S.serial = []; S.lastFrame = null; S.lastBranch = '';
@@ -229,7 +230,7 @@ function sampleHistory(t) {
   if (t - lastHist < 0.02) return;
   lastHist = t;
   const v = S.traceSensor ? S.traceSensor.read(t, motionAt(t)) : [0, 0, 1];
-  S.history.push({ t, x: v[0], y: v[1], lon: S.motion.lon, lat: S.motion.lat });
+  S.history.push({ t, x: v[0], y: v[1], z: v[2], lon: S.motion.lon, lat: S.motion.lat });
   while (S.history.length && S.history[0].t < t - 32) S.history.shift();
 }
 
@@ -250,11 +251,25 @@ function drawOled(f) {
   oledCtx.putImageData(oledImg, 0, 0);
 }
 
+// The companion's body bounces with the road (vertical g), so you can see
+// whether the face reacts in sync.
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let shakeX = 0;
+function shakeBezel() {
+  const h = S.history[S.history.length - 1];
+  const el = $('bezel');
+  if (!h || reduceMotion || !S.playing) { el.style.transform = ''; return; }
+  const dz = Math.max(-1, Math.min(1, h.z - 1));
+  shakeX = Math.abs(dz) > 0.05 ? (Math.random() * 2 - 1) * Math.abs(dz) * 5 : shakeX * 0.6;
+  el.style.transform = `translate(${shakeX.toFixed(1)}px, ${(-dz * 10).toFixed(1)}px)`;
+}
+
 function showMsg(text) { $('msg').textContent = text; $('msg').hidden = !text; }
 
 let drawnFrame = null;
 function render() {
   if (S.lastFrame !== drawnFrame) { drawOled(S.lastFrame); drawnFrame = S.lastFrame; }
+  shakeBezel();
   const t = S.fw ? S.fw.now / 1e6 : 0;
   $('clock').textContent = t.toFixed(1) + ' s';
   $('face').textContent = S.lastFrame ? frameLabel(S.lastFrame) : '–';
@@ -384,6 +399,19 @@ for (const b of document.querySelectorAll('.pedals button')) {
   b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
   b.addEventListener('contextmenu', (e) => e.preventDefault());
 }
+function renderCars() {
+  const el = $('cars');
+  el.innerHTML = '';
+  for (const [id, spec] of Object.entries(CARS)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = `${spec.name} · ${spec.maxG} g`;
+    b.setAttribute('aria-pressed', String(id === S.carType));
+    b.addEventListener('click', () => { S.carType = id; S.car.spec = spec; store.set('car', id); renderCars(); });
+    el.append(b);
+  }
+}
+
 function syncPedals() { for (const b of document.querySelectorAll('.pedals button')) b.classList.toggle('on', S.keys[b.dataset.key]); }
 
 const trail = [];
@@ -438,6 +466,11 @@ function drawTrace(t) {
   for (const g of [-0.3, 0.3]) { c.beginPath(); c.moveTo(left, Y(g)); c.lineTo(right, Y(g)); c.stroke(); }
   c.setLineDash([]);
   const css = getComputedStyle(document.documentElement);
+  // Vertical: draw Z minus gravity faintly, so bumps are visible.
+  c.strokeStyle = css.getPropertyValue('--z').trim(); c.lineWidth = 1; c.beginPath();
+  { let first = true;
+    for (const p of S.history) { if (p.t < t0 || p.z === undefined) continue; const x = X(p.t), y = Y(Math.max(-G, Math.min(G, p.z - 1))); first ? c.moveTo(x, y) : c.lineTo(x, y); first = false; } }
+  c.stroke();
   for (const [key, color] of [['x', css.getPropertyValue('--x')], ['y', css.getPropertyValue('--y')]]) {
     c.strokeStyle = color.trim(); c.lineWidth = 1.5; c.beginPath();
     let first = true;
@@ -550,6 +583,9 @@ function renderNotes(entry) {
   S.settings = { ...DEFAULT_SETTINGS, ...store.get('settings', {}) };
   S.scenario = SCENARIOS.find(s => s.id === store.get('drive', 'lane')) || SCENARIOS[3];
   setSpeed(store.get('speed', 1));
+  S.carType = CARS[store.get('car', 'family')] ? store.get('car', 'family') : 'family';
+  S.car.spec = CARS[S.carType];
+  renderCars();
   renderDrives(); renderSteps(); renderSettings(); syncPadSliders();
   setMode(store.get('mode', 'drives'), false);
   await loadFirmwares();

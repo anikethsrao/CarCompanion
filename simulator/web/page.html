@@ -21,6 +21,7 @@
   --bad: #ff6b5e;
   --x: #7cc4ff;           /* sensor X trace */
   --y: #e59cff;           /* sensor Y trace */
+  --z: #6f7f6a;           /* sensor Z trace (bumps) */
   --f-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
   --f-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -57,7 +58,7 @@ select { max-width: 100%; }
 
 /* the companion */
 .companion { display: grid; gap: 12px; }
-.bezel { background: #0b0c0e; border-radius: 18px; padding: 18px; border: 1px solid #000; box-shadow: inset 0 0 0 2px #24282e, 0 10px 30px rgba(0,0,0,.35); }
+.bezel { will-change: transform; background: #0b0c0e; border-radius: 18px; padding: 18px; border: 1px solid #000; box-shadow: inset 0 0 0 2px #24282e, 0 10px 30px rgba(0,0,0,.35); }
 .screen { position: relative; width: 100%; aspect-ratio: 2 / 1; max-width: 100%; background: #05070a; border-radius: 4px; overflow: hidden; }
 .screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; filter: drop-shadow(0 0 3px rgba(150, 200, 255, .45)); }
 .screen .grid { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(to right, rgba(5,7,10,.55) 1px, transparent 1px), linear-gradient(to bottom, rgba(5,7,10,.55) 1px, transparent 1px); background-size: calc(100% / 128) calc(100% / 64); }
@@ -150,7 +151,7 @@ canvas.trace { width: 100%; height: 230px; display: block; }
 
   <section class="main">
     <div class="panel companion">
-      <div class="bezel"><div class="screen"><canvas id="oled" width="128" height="64"></canvas><div class="grid"></div><div class="msg" id="msg">Loading firmware…</div></div></div>
+      <div class="bezel" id="bezel"><div class="screen"><canvas id="oled" width="128" height="64"></canvas><div class="grid"></div><div class="msg" id="msg">Loading firmware…</div></div></div>
       <div class="now"><span class="label">On screen</span><span class="face" id="face">–</span><span class="label" id="branch"></span></div>
       <div class="readouts">
         <div class="readout"><small>Speed</small><b id="r-speed">0</b><small>km/h</small></div>
@@ -179,6 +180,7 @@ canvas.trace { width: 100%; height: 230px; display: block; }
       <div id="pane-drive" role="tabpanel" hidden>
         <div class="drive-it">
           <div class="keys"><kbd>↑</kbd>/<kbd>W</kbd> gas · <kbd>↓</kbd>/<kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd>/<kbd>A</kbd><kbd>D</kbd> steer. Click the page first so it gets your keys. On a phone, hold the buttons.</div>
+          <div class="ctl"><span class="label">Car</span><div class="seg" id="cars" role="group" aria-label="Car"></div></div>
           <div class="pedals">
             <button type="button" data-key="left">◀ Left</button>
             <button type="button" data-key="down">Brake</button>
@@ -212,7 +214,7 @@ canvas.trace { width: 100%; height: 230px; display: block; }
     <div class="panel">
       <div class="head">
         <span class="label">Last 30 seconds</span>
-        <div class="legend"><span><i style="background:var(--x)"></i>Sensor X</span><span><i style="background:var(--y)"></i>Sensor Y</span><span><i style="background:var(--muted)"></i>±0.3 g trigger</span><span>dots: when the sketch read the sensor</span></div>
+        <div class="legend"><span><i style="background:var(--x)"></i>Sensor X</span><span><i style="background:var(--y)"></i>Sensor Y</span><span><i style="background:var(--z)"></i>Z − 1 g (bumps)</span><span><i style="background:var(--muted)"></i>±0.3 g trigger</span><span>dots: when the sketch read the sensor</span></div>
       </div>
       <canvas class="trace" id="trace"></canvas>
     </div>

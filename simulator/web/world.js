@@ -44,8 +44,8 @@ export const SCENARIOS = [
     about: 'Floors it from a standstill, then eases off.',
     steps: [
       { dur: 9, label: 'Parked' },
-      { dur: 3, lon: 0.45, ramp: 0.3, label: 'Floor it' },
-      { dur: 2, lon: 0.32, label: 'Still pulling' },
+      { dur: 2.5, lon: 0.7, ramp: 0.3, label: 'Floor it' },
+      { dur: 2.5, lon: 0.45, label: 'Still pulling' },
       { dur: 4, lon: 0.05, label: 'Cruise' },
       { dur: 3, lon: -0.2, label: 'Slow down' },
       { dur: 3, label: 'Stopped' },
@@ -102,13 +102,17 @@ export const SCENARIOS = [
     ],
   },
   {
-    id: 'bumpy', name: 'Bumpy road, no turns',
-    about: 'Straight and steady on a rough road with potholes. Nothing should set it off.',
-    settings: { road: 1 },
+    id: 'bumpy', name: 'Potholes and cobbles',
+    about: 'Straight and steady: smooth tarmac, two potholes, then a cobbled street. No turns or hard braking, so only the road should get a reaction.',
+    settings: { road: 0.4 },
     steps: [
       { dur: 9, label: 'Parked' },
       { dur: 3, lon: 0.15, label: 'Get going' },
-      { dur: 14, label: 'Rough road', potholes: 1.2 },
+      { dur: 3, label: 'Smooth tarmac' },
+      { dur: 2.5, label: 'Pothole!', hit: 1 },
+      { dur: 2.5, label: 'Another pothole!', hit: -1 },
+      { dur: 8, label: 'Cobbled street', cobbles: 1 },
+      { dur: 4, label: 'Smooth again' },
       { dur: 3, lon: -0.15, label: 'Easy stop' },
     ],
   },
@@ -156,6 +160,8 @@ export function scenarioAt(sc, t) {
         lat: prev.lat + (target.lat - prev.lat) * k,
         grade: prev.grade + (target.grade - prev.grade) * k,
         potholes: s.potholes || 0,
+        cobbles: s.cobbles || 0,
+        hit: s.hit || 0,
         label: t >= start + s.dur ? 'Done' : s.label,
         step: i,
         done: t >= start + s.dur,
@@ -169,8 +175,13 @@ export function scenarioAt(sc, t) {
 function smooth(k) { return k * k * (3 - 2 * k); }
 
 // A small arcade-ish car for keyboard / touch driving.
+export const CARS = {
+  family: { name: 'Family car', powerW: 55000, massKg: 1400, maxG: 0.5, gasRate: 1.6 },
+  sporty: { name: 'Sporty', powerW: 220000, massKg: 1500, maxG: 0.85, gasRate: 3 },
+};
+
 export class Car {
-  constructor() { this.reset(); }
+  constructor(spec = CARS.family) { this.spec = spec; this.reset(); }
   reset() {
     this.v = 0;          // m/s
     this.throttle = 0; this.brake = 0; this.steer = 0;
@@ -181,13 +192,14 @@ export class Car {
   // inputs: { up, down, left, right } booleans (or analog 0..1)
   step(dt, input) {
     const approach = (cur, target, rate) => cur + Math.max(-rate * dt, Math.min(rate * dt, target - cur));
-    this.throttle = approach(this.throttle, +input.up, input.up ? 1.6 : 4);
+    this.throttle = approach(this.throttle, +input.up, input.up ? this.spec.gasRate : 4);
     this.brake = approach(this.brake, +input.down, input.down ? 2.0 : 5);
     const steerTarget = (+input.right) - (+input.left);
     this.steer = approach(this.steer, steerTarget, steerTarget ? 1.4 : 2.5);
     const g = 9.81;
     const vSafe = Math.max(this.v, 1);
-    const drive = Math.min(0.5 * g, 55000 / (1400 * vSafe)) * this.throttle; // ~75 kW, 1400 kg
+    const { powerW, massKg, maxG } = this.spec;
+    const drive = Math.min(maxG * g, powerW / (massKg * vSafe)) * this.throttle;
     const brake = this.v > 0.05 ? 0.95 * g * this.brake : 0;
     const drag = 0.0004 * this.v * this.v + (this.v > 0.05 ? 0.12 : 0);
     let a = drive - brake - drag;
@@ -241,12 +253,18 @@ export class Sensor {
     // Potholes and road texture: a damped spring kicked at random, stepped
     // in 1 ms slices (the sketch may read the sensor seconds apart).
     const rate = (motion.potholes || 0) + (moving ? s.road * 0.3 : 0);
+    // Cobbles: a steady stream of small kicks. The road slider adds them above 0.6.
+    const cobbles = moving ? Math.max(motion.cobbles || 0, Math.min(1, Math.max(0, (s.road - 0.6) / 0.4))) : 0;
+    // One-off hits from a scripted drive (a pothole at the start of a step).
+    if (motion.hit && motion.step !== this.hitStep) { this.bumpVel += motion.hit * 45; }
+    this.hitStep = motion.step;
     const w = 2 * Math.PI * 8, z = 0.25;
     const span = Math.min(dt, 0.3), steps = Math.ceil(span / 0.001);
     if (dt > span) { this.bump *= Math.exp(-z * w * (dt - span)); this.bumpVel *= Math.exp(-z * w * (dt - span)); }
     for (let i = 0; i < steps; i++) {
       const h = span / steps;
       if (this.rng.next() < rate * h) this.bumpVel += (this.rng.next() < 0.5 ? -1 : 1) * (0.6 + this.rng.next()) * 25 * Math.max(0.3, s.road);
+      if (this.rng.next() < cobbles * 14 * h) this.bumpVel += (this.rng.next() < 0.5 ? -1 : 1) * (0.5 + this.rng.next()) * 9 * cobbles;
       this.bumpVel += (-w * w * this.bump - 2 * z * w * this.bumpVel) * h;
       this.bump += this.bumpVel * h;
     }
