@@ -80,6 +80,8 @@ class CarFace {
   // Light background with dark features (original look) or the reverse.
   void setLightBackground(bool on) { light_ = on; }
   void setFrameInterval(uint16_t ms) { frameMs_ = ms; }
+  // g needed to flash SHOCKED when speeding up or braking starts.
+  void setShockThreshold(float g) { shockG_ = g; }
   void blink() { startBlink(1.0f); }
   Mood mood() const { return flash_ < MOOD_COUNT ? flash_ : base_; }
   Mood baseMood() const { return base_; }
@@ -121,8 +123,8 @@ class CarFace {
 
     holdAcc_ = forwardG > 0.45f ? holdAcc_ + dt : 0;
     holdBrk_ = forwardG < -0.45f ? holdBrk_ + dt : 0;
-    if (forwardG > 0.25f && prevLon_ <= 0.25f) flash(SHOCKED, 700);
-    if (forwardG < -0.25f && prevLon_ >= -0.25f) flash(SHOCKED, 600);
+    if (forwardG > shockG_ && prevLon_ <= shockG_) flash(SHOCKED, 700);
+    if (forwardG < -shockG_ && prevLon_ >= -shockG_) flash(SHOCKED, 600);
     prevLon_ = forwardG;
 
     if (holdAcc_ > 0.35f) { base_ = SPEEDING; return; }
@@ -240,7 +242,7 @@ class CarFace {
   float cur_[PARAM_COUNT], vel_[PARAM_COUNT];
   float k_ = 170, c_ = 20;
   Mood base_ = NEUTRAL, flash_ = MOOD_COUNT, springMood_ = MOOD_COUNT;
-  float flashUntil_ = 0, t_ = 0, lean_ = 0;
+  float flashUntil_ = 0, t_ = 0, lean_ = 0, shockG_ = 0.25f;
   uint32_t lastMs_ = 0, lastFrameMs_ = 0;
   uint16_t frameMs_ = 33;
   bool light_ = true;

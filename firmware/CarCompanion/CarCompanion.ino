@@ -34,6 +34,16 @@ const float LAT_SIGN = 1;
 // Smoothing: exponential moving average, 0..1 (lower = smoother, slower)
 const float SMOOTHING = 0.3;
 const int CAL_SAMPLES = 50;
+
+// A brisk pull-away is about 0.25 g; only flash SHOCKED above this.
+const float SHOCK_G = 0.35;
+
+// Slope tracking. Startup calibration can't tell a tilted mount from a sloped
+// road (switched on parked on a hill), so the baseline keeps drifting toward
+// the reading while the car is driving gently. Hard events (above
+// ADAPT_MAX_G) never move it. Slopes fade out over a few seconds.
+const float ADAPT_TAU_S = 4.0;
+const float ADAPT_MAX_G = 0.3;
 const uint16_t SAMPLE_MS = 20;   // read the sensor at 50 Hz
 const uint16_t LOG_MS = 200;     // serial log rate
 
@@ -76,6 +86,7 @@ void setup() {
   calibrate();   // car must be still here
 
   face.begin(millis(), analogRead(A0) * 2654435761u + 1);   // seed blinks/glances
+  face.setShockThreshold(SHOCK_G);
 }
 
 void loop() {
@@ -87,6 +98,13 @@ void loop() {
     readAxes(f, l);
     forwardG += SMOOTHING * ((f - fwdBase) - forwardG);
     lateralG += SMOOTHING * ((l - latBase) - lateralG);
+
+    // Track slow changes (road slope, camber) into the baseline.
+    float k = (SAMPLE_MS / 1000.0) / ADAPT_TAU_S;
+    if (fabs(forwardG) < ADAPT_MAX_G && fabs(lateralG) < ADAPT_MAX_G) {
+      fwdBase += k * forwardG;
+      latBase += k * lateralG;
+    }
   }
 
   if (now - lastLog >= LOG_MS) {
