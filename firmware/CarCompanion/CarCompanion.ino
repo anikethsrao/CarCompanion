@@ -1,4 +1,11 @@
 /*
+V0.4 changes (from V0.3_XIAO):
+  - mag is now a float (int rounded every turn under 1 g down to 0, so turns never animated)
+  - Level calibration at startup: keep the car still while it wakes up
+  - Readings are smoothed so bumps and potholes don't set it off
+  - FWD_AXIS / LAT_AXIS constants to remap axes for a new mounting
+  - Fixed holdingLeft = 1 typo and Serial baud rate (115200)
+
 TODOs:
 
 Driving Dynamics:
@@ -1496,11 +1503,44 @@ const float ACC_HARD = 0.4;
 const float ACC = 0.3;
 
 //magnitude of force
-int mag;
+float mag;
+
+// Axis mapping: which accelerometer axis points along the car, and which way.
+// 0 = X, 1 = Y, 2 = Z. Flip a SIGN to -1 if that direction comes out backwards.
+// Check with the serial log: brake hard -> X Acceleration should go positive,
+// turn right -> Y Acceleration should go positive.
+const int FWD_AXIS = 0;    // accel/brake axis
+const float FWD_SIGN = 1;
+const int LAT_AXIS = 1;    // turning axis
+const float LAT_SIGN = 1;
+
+// Calibration: resting reading captured at startup (gravity + dash tilt)
+double X_base = 0, Y_base = 0;
+const int CAL_SAMPLES = 50;
+
+// Smoothing: exponential moving average, 0..1 (lower = smoother, slower)
+const float SMOOTHING = 0.3;
+bool firstReading = true;
+
+void calibrate() {
+  double sx = 0, sy = 0;
+  for (int i = 0; i < CAL_SAMPLES; i++) {
+    adxl.getAcceleration(xyz);
+    sx += FWD_SIGN * xyz[FWD_AXIS];
+    sy += LAT_SIGN * xyz[LAT_AXIS];
+    delay(10);
+  }
+  X_base = sx / CAL_SAMPLES;
+  Y_base = sy / CAL_SAMPLES;
+  Serial.print("Calibrated X base: ");
+  Serial.print(X_base);
+  Serial.print("  Y base: ");
+  Serial.println(Y_base);
+}
 
 void setup() {
 
-  Serial.begin(11500);
+  Serial.begin(115200);
 
   // put your setup code here, to run once:
   Wire.begin();
@@ -1523,6 +1563,7 @@ void setup() {
   display.setCursor(0, 0);
 
   // displayScreen(shocked, 5000);
+  calibrate(); // car must be still here
   wakeUp();
 
 }
@@ -1543,9 +1584,17 @@ void loop() {
   */
 
   adxl.getAcceleration(xyz);
-	X_out = xyz[0];
-	Y_out = xyz[1];
-	Z_out = xyz[2];
+  double rawX = FWD_SIGN * xyz[FWD_AXIS] - X_base;
+  double rawY = LAT_SIGN * xyz[LAT_AXIS] - Y_base;
+  if (firstReading) {
+    X_out = rawX;
+    Y_out = rawY;
+    firstReading = false;
+  } else {
+    X_out += SMOOTHING * (rawX - X_out);
+    Y_out += SMOOTHING * (rawY - Y_out);
+  }
+  Z_out = xyz[2];
 
   mag = sqrt(X_out*X_out + Y_out*Y_out);
 
@@ -1658,7 +1707,7 @@ void loop() {
     display.display();
     delay(200);
 
-    if (holdingLeft = 1 || holdingRight == 1 || speeding == 1){
+    if (holdingLeft == 1 || holdingRight == 1 || speeding == 1){
       /*
       if (animationCounter < ANIMATION_HOLD) {
         display.clearDisplay();
