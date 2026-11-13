@@ -175,7 +175,7 @@ function onFrame(f) {
   }
 }
 
-const QUIET = /X Acceleration:|Sensitivity:/;
+const QUIET = /X Acceleration:|Sensitivity:|forward g:/;
 function onSerial({ t, line }) {
   if (!QUIET.test(line)) S.lastBranch = line.trim();
   S.serial.push({ t, line });
@@ -411,12 +411,12 @@ function drawTrack() {
 
 // trace
 function faceColor(name) {
-  if (/smile|default/i.test(name)) return 'hsl(150 28% 30%)';
-  if (/sleep/i.test(name)) return 'hsl(235 30% 34%)';
-  if (/shock|speed/i.test(name)) return 'hsl(35 70% 36%)';
-  if (/stop/i.test(name)) return 'hsl(4 60% 40%)';
   if (/left/i.test(name)) return 'hsl(200 55% 36%)';
   if (/right/i.test(name)) return 'hsl(280 40% 40%)';
+  if (/smile|default|content|neutral|joy/i.test(name)) return 'hsl(150 28% 30%)';
+  if (/sleep|asleep/i.test(name)) return 'hsl(235 30% 34%)';
+  if (/shock|speed/i.test(name)) return 'hsl(35 70% 36%)';
+  if (/stop|brak/i.test(name)) return 'hsl(4 60% 40%)';
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return `hsl(${h % 360} 35% 34%)`;

@@ -50,6 +50,7 @@ export class Firmware {
           t: self.now / 1e6, w, h, inverted: !!inverted, on: !!on, contrast,
           buffer: self._bytes(ptr, (w * h) >> 3).slice(),
           bitmaps: self.drawn.map(d => d.name),
+          label: self.x.sim_label ? self._cstr(self.x.sim_label()) : null,
         };
         self.frame = frame;
         self.frames++;
@@ -167,6 +168,14 @@ export class Firmware {
     return 0;
   }
 
+  _cstr(ptr) {
+    if (!ptr) return null;
+    const m = new Uint8Array(this.mem.buffer);
+    let e = ptr;
+    while (m[e] && e - ptr < 256) e++;
+    return new TextDecoder().decode(m.subarray(ptr, e));
+  }
+
   _bytes(ptr, len) { return new Uint8Array(this.mem.buffer, ptr, len); }
 
   _rand() {
@@ -187,6 +196,7 @@ export function pixelAt(frame, x, y) {
 export function frameLabel(frame) {
   if (!frame) return 'off';
   if (!frame.on) return 'display off';
+  if (frame.label) return frame.label;
   const names = [...new Set(frame.bitmaps)];
   if (names.length) return names.join(' + ');
   const lit = frame.buffer.some(b => b);

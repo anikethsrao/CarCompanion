@@ -70,6 +70,16 @@ export function preprocess(src, fileName = 'sketch.ino') {
   const f = JSON.stringify(fileName);
   let out = `#include <Arduino.h>\n#line 1 ${f}\n` + src.slice(0, insertAt) +
     `\n${protos.join('\n')}\n#line ${firstLine} ${f}\n` + src.slice(insertAt);
+  // Procedural faces (CarFace.h) have no bitmaps to name, so ask the face
+  // object for its mood instead.
+  const faceObj = /(?:carface::)?CarFace\s*<[^>]*>\s+([A-Za-z_]\w*)\s*[({]/.exec(clean);
+  out += faceObj
+    ? `\n\nstatic char sim_label_buf[64];\nextern "C" __attribute__((export_name("sim_label"))) const char *sim_label() {\n` +
+      `  const char *m = carface::MOOD_NAMES[${faceObj[1]}.mood()];\n` +
+      `  float lx = ${faceObj[1]}.params()[carface::LOOK_X];\n` +
+      `  snprintf(sim_label_buf, sizeof sim_label_buf, "%s%s", m, lx > 8 ? ", leaning right" : lx < -8 ? ", leaning left" : "");\n` +
+      `  return sim_label_buf;\n}\n`
+    : '';
   out += `\n\nextern "C" void sim_register_bitmap_c(const char *, const uint8_t *, int);\n` +
     `extern "C" void sim_register_sketch_bitmaps() {\n` +
     bitmaps.map(b => `  sim_register_bitmap_c(${JSON.stringify(b)}, (const uint8_t *)${b}, (int)sizeof(${b}));`).join('\n') +

@@ -28,7 +28,7 @@ export async function runDrive(wasm, sc, { serial = false } = {}) {
       if (last) last.t1 = f.t;
       segments.push({ t0: f.t, t1: null, face, drive: scenarioAt(sc, f.t).label });
     },
-    onSerial: ({ t, line }) => { if (serial || !/Acceleration:|Sensitivity/.test(line)) log.push({ t, line }); },
+    onSerial: ({ t, line }) => { if (serial || !/Acceleration:|Sensitivity|forward g:/.test(line)) log.push({ t, line }); },
     onEvent: (e) => { if (e.name === 'crash') log.push({ t: e.t, line: `CRASH: ${e.message}` }); },
   });
   await fw.start();

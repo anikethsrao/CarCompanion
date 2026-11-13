@@ -74,6 +74,12 @@ gains, so real-car numbers will be noisier. If the real companion reacts
 differently, the mounting settings (lean, twist, axis flips) are the first
 thing to match.
 
+## Procedural faces
+
+Sketches that draw with `CarFace.h` (V0.5 onward) have no bitmaps to name, so
+the build asks the face object for its mood, and the page and `run.mjs` show
+names like `braking` or `content, leaning left`.
+
 ## Adding things
 
 - New drive: add an entry to `SCENARIOS` in `web/world.js`.
