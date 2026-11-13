@@ -1,0 +1,233 @@
+<title>Car Companion Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Barlow:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: an instrument cluster. Screen and readouts on the left, the driver's
+   controls on the right, the trip recorder (trace + serial) underneath.
+   One deliberate night-dash look, so colors are set for dark only. */
+:root {
+  --bg: #121417;          /* dash plastic */
+  --panel: #1a1d22;
+  --panel-2: #22262c;
+  --line: #2e333a;
+  --fg: #e6e8ea;
+  --muted: #8b939c;
+  --amber: #ffb547;       /* instrument amber: the one accent */
+  --oled: #d8ecff;        /* SSD1306 white-blue pixels */
+  --ok: #6fd39a;
+  --warn: #ffb547;
+  --bad: #ff6b5e;
+  --x: #7cc4ff;           /* sensor X trace */
+  --y: #e59cff;           /* sensor Y trace */
+  --z: #6f7f6a;           /* sensor Z trace (bumps) */
+  --f-display: "Barlow Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--f-body); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 14px 28px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 14px; }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.label { font-family: var(--f-display); text-transform: uppercase; letter-spacing: .08em; font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+/* top bar */
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; min-width: 0; }
+.brand h1 { font-family: var(--f-display); font-weight: 700; font-size: 22px; margin: 0; letter-spacing: .01em; }
+.brand span { color: var(--muted); font-size: 13px; }
+.ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+select, .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+select { max-width: 100%; }
+.btn:hover { border-color: #46505a; }
+.btn.primary { background: var(--amber); color: #1b1408; border-color: var(--amber); font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { background: var(--panel-2); border: 0; padding: 6px 9px; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--amber); color: #1b1408; }
+.clock { font-family: var(--f-mono); font-size: 13px; color: var(--muted); min-width: 7ch; text-align: right; }
+
+/* main grid */
+.main { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+
+/* the companion */
+.companion { display: grid; gap: 12px; }
+.bezel { will-change: transform; background: #0b0c0e; border-radius: 18px; padding: 18px; border: 1px solid #000; box-shadow: inset 0 0 0 2px #24282e, 0 10px 30px rgba(0,0,0,.35); }
+.screen { position: relative; width: 100%; aspect-ratio: 2 / 1; max-width: 100%; background: #05070a; border-radius: 4px; overflow: hidden; }
+.screen canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; filter: drop-shadow(0 0 3px rgba(150, 200, 255, .45)); }
+.screen .grid { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(to right, rgba(5,7,10,.55) 1px, transparent 1px), linear-gradient(to bottom, rgba(5,7,10,.55) 1px, transparent 1px); background-size: calc(100% / 128) calc(100% / 64); }
+.screen .msg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px; color: var(--muted); font-family: var(--f-mono); font-size: 12px; white-space: pre-wrap; }
+.now { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; }
+.now .face { font-family: var(--f-mono); font-size: 18px; color: var(--oled); }
+.readouts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 520px) { .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.readout { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.readout b { display: block; font-family: var(--f-mono); font-weight: 500; font-size: 20px; font-variant-numeric: tabular-nums; }
+.readout small { color: var(--muted); }
+.readout b.xy { font-size: 16px; padding-block: 3px; }
+.flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 12px; border-radius: 99px; padding: 2px 9px; border: 1px solid var(--line); color: var(--muted); }
+.chip.warn { color: var(--warn); border-color: rgba(255,181,71,.4); }
+.chip.bad { color: var(--bad); border-color: rgba(255,107,94,.45); }
+.chip.ok { color: var(--ok); border-color: rgba(111,211,154,.4); }
+
+/* controls */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: -4px 0 12px; }
+.tabs button { background: none; border: 0; padding: 8px 10px; font-family: var(--f-display); font-weight: 600; font-size: 15px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--amber); }
+.drives { display: grid; gap: 6px; max-height: 360px; overflow-y: auto; padding-right: 2px; }
+.drive { text-align: left; background: var(--panel-2); border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; display: grid; gap: 2px; }
+.drive:hover { border-color: var(--line); }
+.drive[aria-pressed="true"] { border-color: var(--amber); }
+.drive strong { font-family: var(--f-display); font-size: 15px; font-weight: 600; }
+.drive span { color: var(--muted); font-size: 12.5px; }
+.progress { margin-top: 10px; display: grid; gap: 6px; }
+.steps { display: flex; height: 22px; border-radius: 5px; overflow: hidden; background: var(--panel-2); position: relative; }
+.steps div { border-right: 1px solid var(--bg); font-size: 10.5px; color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding: 3px 4px; }
+.steps .cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--amber); padding: 0; border: 0; }
+.stepnow { font-size: 13px; }
+
+.pad-wrap { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 520px) { .pad-wrap { grid-template-columns: minmax(0, 1fr); } }
+.pad { width: 100%; max-width: 260px; aspect-ratio: 1; touch-action: none; cursor: crosshair; display: block; }
+.sliders { display: grid; gap: 10px; }
+.slider { display: grid; gap: 2px; }
+.slider .row { display: flex; justify-content: space-between; gap: 8px; }
+input[type="range"] { width: 100%; accent-color: var(--amber); }
+.check { display: flex; gap: 8px; align-items: center; color: var(--muted); }
+
+.drive-it { display: grid; gap: 12px; }
+.keys { color: var(--muted); font-size: 13px; }
+kbd { font-family: var(--f-mono); font-size: 11.5px; background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; color: var(--fg); }
+.pedals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.pedals button { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 14px 4px; font-family: var(--f-display); font-weight: 600; font-size: 15px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.pedals button.on { background: var(--amber); color: #1b1408; border-color: var(--amber); }
+.track { width: 100%; height: 150px; background: var(--panel-2); border-radius: 8px; display: block; }
+
+details.settings { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+details.settings summary { cursor: pointer; font-family: var(--f-display); font-weight: 600; font-size: 15px; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin-top: 10px; }
+@media (max-width: 520px) { .settings-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* recorder */
+.recorder { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 860px) { .recorder { grid-template-columns: minmax(0, 1fr); } }
+.head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+canvas.trace { width: 100%; height: 230px; display: block; }
+.serial { height: 230px; overflow: auto; background: #0d0f12; border-radius: 6px; padding: 8px 10px; font-family: var(--f-mono); font-size: 11.5px; line-height: 1.5; white-space: pre; color: #c9d1d9; }
+.serial .t { color: var(--muted); }
+.serial .hl { color: var(--amber); }
+.serial .err { color: var(--bad); }
+.notes { font-size: 12.5px; color: var(--muted); }
+.notes pre { white-space: pre-wrap; font-family: var(--f-mono); font-size: 11.5px; background: #0d0f12; padding: 8px 10px; border-radius: 6px; color: #c9d1d9; overflow-x: auto; margin: 6px 0 0; }
+.foot { color: var(--muted); font-size: 12.5px; max-width: 75ch; }
+.foot code { font-family: var(--f-mono); font-size: 12px; color: var(--fg); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="bar">
+    <div class="brand"><h1>Car Companion Simulator</h1><span>runs the real sketch</span></div>
+    <div class="ctl">
+      <label class="label" for="fw">Firmware</label>
+      <select id="fw"></select>
+      <input id="fwfile" type="file" accept=".wasm" hidden>
+    </div>
+    <div class="ctl">
+      <button class="btn primary" id="play" type="button">Pause</button>
+      <button class="btn" id="power" type="button" title="Switch the companion off and on again">Power cycle</button>
+      <div class="seg" id="speed" role="group" aria-label="Simulation speed"></div>
+      <span class="clock" id="clock">0.0 s</span>
+    </div>
+  </header>
+
+  <section class="main">
+    <div class="panel companion">
+      <div class="bezel" id="bezel"><div class="screen"><canvas id="oled" width="128" height="64"></canvas><div class="grid"></div><div class="msg" id="msg">Loading firmware…</div></div></div>
+      <div class="now"><span class="label">On screen</span><span class="face" id="face">–</span><span class="label" id="branch"></span></div>
+      <div class="readouts">
+        <div class="readout"><small>Speed</small><b id="r-speed">0</b><small>km/h</small></div>
+        <div class="readout"><small>Forward</small><b id="r-lon">0.00</b><small>g, car</small></div>
+        <div class="readout"><small>Sideways</small><b id="r-lat">0.00</b><small>g, car (+ right)</small></div>
+        <div class="readout"><small>Sensor X / Y</small><b id="r-xy" class="xy">0.00 0.00</b><small>g, what the sketch reads</small></div>
+      </div>
+      <div class="flags" id="flags"></div>
+    </div>
+
+    <div class="panel">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="tab-drives" aria-selected="true" type="button">Scripted drives</button>
+        <button role="tab" id="tab-drive" aria-selected="false" type="button">Drive it</button>
+        <button role="tab" id="tab-pad" aria-selected="false" type="button">g-force pad</button>
+      </div>
+
+      <div id="pane-drives" role="tabpanel">
+        <div class="drives" id="drives"></div>
+        <div class="progress">
+          <div class="steps" id="steps"></div>
+          <div class="stepnow" id="stepnow"></div>
+        </div>
+      </div>
+
+      <div id="pane-drive" role="tabpanel" hidden>
+        <div class="drive-it">
+          <div class="keys"><kbd>↑</kbd>/<kbd>W</kbd> gas · <kbd>↓</kbd>/<kbd>S</kbd> brake · <kbd>←</kbd><kbd>→</kbd>/<kbd>A</kbd><kbd>D</kbd> steer. Click the page first so it gets your keys. On a phone, hold the buttons.</div>
+          <div class="ctl"><span class="label">Car</span><div class="seg" id="cars" role="group" aria-label="Car"></div></div>
+          <div class="pedals">
+            <button type="button" data-key="left">◀ Left</button>
+            <button type="button" data-key="down">Brake</button>
+            <button type="button" data-key="up">Gas</button>
+            <button type="button" data-key="right">Right ▶</button>
+          </div>
+          <canvas class="track" id="track"></canvas>
+        </div>
+      </div>
+
+      <div id="pane-pad" role="tabpanel" hidden>
+        <div class="pad-wrap">
+          <canvas class="pad" id="pad" width="520" height="520" aria-label="Drag to set the g-force on the car"></canvas>
+          <div class="sliders">
+            <div class="slider"><div class="row"><label for="s-lon">Forward g (+ speeding up)</label><span class="mono" id="v-lon">0.00</span></div><input id="s-lon" type="range" min="-1" max="1" step="0.01" value="0"></div>
+            <div class="slider"><div class="row"><label for="s-lat">Sideways g (+ turning right)</label><span class="mono" id="v-lat">0.00</span></div><input id="s-lat" type="range" min="-1" max="1" step="0.01" value="0"></div>
+            <label class="check"><input type="checkbox" id="spring" checked> Spring back to zero when let go</label>
+            <div class="notes">Drag the dot. The dashed lines are the sketch's 0.3 g trigger and the rings are 0.5 and 0.7 g. Up is speeding up, right is a right turn.</div>
+          </div>
+        </div>
+      </div>
+
+      <details class="settings" id="settings">
+        <summary>Sensor and mounting</summary>
+        <div class="settings-grid" id="settings-grid"></div>
+      </details>
+    </div>
+  </section>
+
+  <section class="recorder">
+    <div class="panel">
+      <div class="head">
+        <span class="label">Last 30 seconds</span>
+        <div class="legend"><span><i style="background:var(--x)"></i>Sensor X</span><span><i style="background:var(--y)"></i>Sensor Y</span><span><i style="background:var(--z)"></i>Z − 1 g (bumps)</span><span><i style="background:var(--muted)"></i>±0.3 g trigger</span><span>dots: when the sketch read the sensor</span></div>
+      </div>
+      <canvas class="trace" id="trace"></canvas>
+    </div>
+    <div class="panel">
+      <div class="head">
+        <span class="label">Serial monitor</span>
+        <label class="check"><input type="checkbox" id="quiet" checked> Hide per-loop readings</label>
+      </div>
+      <div class="serial" id="serial" tabindex="0"></div>
+    </div>
+  </section>
+
+  <section class="panel notes" id="buildnotes" hidden></section>
+
+  <p class="foot" id="foot">The sketch here is the real <code>.ino</code>, compiled to WebAssembly with stand-ins for the Arduino core, Wire, the Seeed ADXL345 library and Adafruit SSD1306/GFX. Time is simulated, including delay() and the ~25 ms it takes to send a frame to the OLED, so animations run at the speed they would in the car.</p>
+</div>

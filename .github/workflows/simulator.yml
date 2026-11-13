@@ -1,0 +1,29 @@
+name: Simulator
+
+# Compiles the sketch with the simulator's toolchain and runs every scripted
+# drive, so a change that breaks the build (or crashes the sketch) shows up
+# on the pull request.
+on:
+  push:
+    paths: ['firmware/**', 'simulator/**', '.github/workflows/simulator.yml']
+  pull_request:
+    paths: ['firmware/**', 'simulator/**', '.github/workflows/simulator.yml']
+
+jobs:
+  drives:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: simulator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: simulator/package-lock.json
+      - run: npm ci
+      - name: Build the sketch and run the drives
+        run: node tools/run.mjs ../firmware/CarCompanion/CarCompanion.ino | tee drives.txt
+      - name: Fail if the sketch crashed
+        run: "! grep -q CRASH drives.txt"
