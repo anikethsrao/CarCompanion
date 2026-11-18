@@ -15,7 +15,7 @@
 //   void setup() { display.begin(SSD1306_SWITCHCAPVCC, 0x3C); face.begin(millis()); }
 //   void loop()  { face.drive(forwardG, lateralG, millis()); face.update(millis()); }
 //
-// drive() is optional: call setMood()/flash()/setLean()/wake()/playIdle() yourself
+// drive() is optional: call setMood()/flash()/setLean()/wake()/playCruise() yourself
 // if you'd rather keep your own detection logic.
 #pragma once
 #include <math.h>
@@ -27,18 +27,18 @@ enum Mood : uint8_t {
   NEUTRAL, CONTENT, JOY, SHOCKED, SLEEPY, ASLEEP, SPEEDING, BRAKING,
   RATTLED,  // rough road: squinting, gritted teeth, shaken by every bump
   OOF,      // one big pothole
-  MUSIC,    // idle: eyes shut, bobbing to a beat, notes floating up
-  WHISTLE,  // idle: bored, looking away, whistling, the odd sigh
-  TURBO,    // idle: "phew", gets flushed round into a spinning turbo wheel and back; queasy, then worn out
-  DOZE,     // idle: yawns, nods off, jolts awake, nods off again with z's, then starts awake
-  SNEEZE,   // idle: nose twitch, two false starts, ACHOO
-  FLY,      // idle: watches a fly, goes cross-eyed when it lands on its nose, blows it away
-  WIPERS,   // idle: raindrops, an annoyed look, a wiper sweeps its face clean
-  HICCUP,   // idle: hiccups, holds its breath with puffed cheeks, one more sneaks out
-  REV,      // idle: bored, makes engine noises, then checks whether anyone saw
-  PEEK,     // idle: slides off the bottom, peeks over the edge, pops up grinning
-  MIRROR,   // idle: checks left and right, then a smug raised brow and a wink
-  DREAM,    // idle: daydreams of a turbo in a thought bubble until it pops
+  MUSIC,    // cruising: eyes shut, bobbing to a beat, notes floating up
+  WHISTLE,  // cruising: bored, looking away, whistling, the odd sigh
+  TURBO,    // cruising: "phew", gets flushed round into a spinning turbo wheel and back; queasy, then worn out
+  DOZE,     // cruising: yawns, nods off, jolts awake, nods off again with z's, then starts awake
+  SNEEZE,   // cruising: nose twitch, two false starts, ACHOO
+  FLY,      // cruising: watches a fly, goes cross-eyed when it lands on its nose, blows it away
+  WIPERS,   // cruising: raindrops, an annoyed look, a wiper sweeps its face clean
+  HICCUP,   // cruising: hiccups, holds its breath with puffed cheeks, one more sneaks out
+  REV,      // cruising: bored, makes engine noises, then checks whether anyone saw
+  PEEK,     // cruising: slides off the bottom, peeks over the edge, pops up grinning
+  MIRROR,   // cruising: checks left and right, then a smug raised brow and a wink
+  DREAM,    // cruising: daydreams of a turbo in a thought bubble until it pops
   MOOD_COUNT
 };
 
@@ -81,7 +81,7 @@ static const float SPRING_K[MOOD_COUNT]    = { 170, 140, 220, 600,  20,  12, 300
 static const float SPRING_ZETA[MOOD_COUNT] = { 0.8, 0.8, 0.6, 0.42, 1.0, 1.0, 0.55, 0.5, 0.45, 0.4, 0.8, 0.85, 0.6, 0.6,
                                                0.55, 0.7, 0.7, 0.6, 0.6, 0.7, 0.7, 0.75 };
 
-// How long each idle act runs, MUSIC onwards (ms).
+// How long each cruising act runs, MUSIC onwards (ms).
 static const uint16_t ACT_MS[MOOD_COUNT - MUSIC] = { 8000, 7000, 11400, 10000, 5000, 9000, 7000, 7200, 7000, 7000, 6000, 8500 };
 static const float HIC[4] = { 0.6f, 1.7f, 2.8f, 6.2f };            // when the hiccups come
 static const float DROPX[6] = { 46, 86, 64, 121, 7, 30 };         // where the raindrops land
@@ -105,10 +105,11 @@ class CarFace {
     t_ = 0; lastMs_ = nowMs; lastFrameMs_ = nowMs - frameMs_;
     nextBlink_ = 1.5f; nextGaze_ = 1.0f; blinkStart_ = -10;
     queueLen_ = 0; lean_ = 0; gx_ = gy_ = gvx_ = gvy_ = gtx_ = gty_ = 0;
-    driveLastMs_ = nowMs; lastActiveMs_ = nowMs; calmSinceMs_ = nowMs;
+    driveLastMs_ = nowMs; lastActiveMs_ = nowMs; calmSinceMs_ = nowMs; quietSinceMs_ = nowMs;
+    surge_ = surgeCur_ = 0;
     holdAcc_ = holdBrk_ = 0; prevLon_ = 0;
     shX_ = shY_ = shVx_ = shVy_ = 0; rough_ = 0; roughOn_ = roughOff_ = 0;
-    moodT_ = 0; gazeHoldUntil_ = 0; idleArmed_ = false; nextIdleMs_ = 0; lastIdle_ = MOOD_COUNT;
+    moodT_ = 0; gazeHoldUntil_ = 0; cruiseArmed_ = false; nextCruiseMs_ = 0; lastCruise_ = MOOD_COUNT;
     boot();
   }
 
@@ -123,6 +124,15 @@ class CarFace {
   void setFrameInterval(uint16_t ms) { frameMs_ = ms; }
   // g needed to flash SHOCKED when speeding up or braking starts.
   void setShockThreshold(float g) { shockG_ = g; }
+  // Rough-road tuning. RATTLED starts once roughness stays above onG for
+  // holdS seconds and ends below offG; single jolts under kickG don't shake the face.
+  void setRoughThresholds(float onG, float offG, float kickG, float holdS) {
+    roughOnG_ = onG; roughOffG_ = offG; kickG_ = kickG; roughHoldS_ = holdS;
+  }
+  // Seconds between cruising acts while driving (each gap is 1x to 2x this).
+  void setCruiseGap(float seconds) { cruiseGapMs_ = (uint32_t)(seconds * 1000); }
+  // -1..1: pressed back (speeding up, +) or tipped forward (braking, -).
+  void setSurge(float s) { surge_ = clampf(s, -1, 1); }
   void blink() { startBlink(1.0f); }
 
   // Road feel from the vertical axis, once per sensor sample.
@@ -133,12 +143,12 @@ class CarFace {
   void road(float joltG, float roughnessG, uint32_t nowMs) {
     rough_ = roughnessG;
     float kick = clampf(joltG, -1.5f, 1.5f);
-    if (fabsf(kick) > 0.04f) {
+    if (fabsf(kick) > kickG_) {
       shVy_ += kick * 260;                        // bumps throw the face up/down
       shVx_ += (rnd() * 2 - 1) * fabsf(kick) * 140;  // and rattle it sideways a bit
     }
     if (base_ == ASLEEP || base_ == SLEEPY) return;
-    if (fabsf(joltG) > OOF_G && rough_ < ROUGH_ON_G && (flash_ != OOF)) { flash(OOF, 650); blink(); }
+    if (fabsf(joltG) > OOF_G && rough_ < roughOnG_ && (flash_ != OOF)) { flash(OOF, 650); blink(); }
     (void)nowMs;
   }
   float roughness() const { return rough_; }
@@ -164,12 +174,13 @@ class CarFace {
     push(17.0f, STEP_MOOD, CONTENT);
   }
 
-  // Play one idle act now (any mood from MUSIC onwards), then return to the base mood.
-  void playIdle(Mood m) {
-    if (!isIdleAct(m)) return;
+  // Play one cruising act now (any mood from MUSIC onwards), then return to the base mood.
+  void playCruise(Mood m) {
+    if (!isCruiseAct(m)) return;
     flash(m, ACT_MS[m - MUSIC]);
-    lastIdle_ = m;
+    lastCruise_ = m;
   }
+  void playIdle(Mood m) { playCruise(m); }   // old name
 
   // Waking up: eyes crack open, a double blink, a happy squint, then settle.
   void wake() {
@@ -195,17 +206,19 @@ class CarFace {
     float act = fmaxf(fmaxf(fabsf(forwardG), fabsf(lateralG)), rough_);
     if (act > 0.06f) lastActiveMs_ = nowMs;
     if (act > 0.25f) calmSinceMs_ = nowMs;
-    // any real motion cuts an idle act short
-    if (act > 0.2f && isIdleAct(flash_)) flash_ = MOOD_COUNT;
+    // any real motion cuts a cruising act short
+    if (act > 0.2f) { quietSinceMs_ = nowMs; if (isCruiseAct(flash_)) flash_ = MOOD_COUNT; }
 
     if (base_ == ASLEEP || base_ == SLEEPY) {
-      setLean(0);
+      setLean(0); setSurge(0);
       if (queueLen_ == 0 && act > 0.12f) { wake(); calmSinceMs_ = nowMs; }
       else if (queueLen_ == 0 && base_ == SLEEPY && nowMs - lastActiveMs_ > DROWSY_MS + SLEEP_MS) base_ = ASLEEP;
       prevLon_ = forwardG;
       return;
     }
     setLean(l);
+    // gentle everyday speeding up / braking: pressed back or tipped forward
+    setSurge(fabsf(forwardG) > 0.06f ? (forwardG - (forwardG > 0 ? 0.06f : -0.06f)) / 0.3f : 0);
 
     holdAcc_ = forwardG > 0.45f ? holdAcc_ + dt : 0;
     holdBrk_ = forwardG < -0.45f ? holdBrk_ + dt : 0;
@@ -217,10 +230,10 @@ class CarFace {
     if (holdBrk_ > 0.2f) { base_ = BRAKING; flash_ = MOOD_COUNT; return; }
     if (base_ == SPEEDING || base_ == BRAKING) { base_ = NEUTRAL; calmSinceMs_ = nowMs; }
 
-    // Rough road: switch on after 0.4 s of shaking, off after 1 s of smooth.
-    roughOn_ = rough_ > ROUGH_ON_G ? roughOn_ + dt : 0;
-    roughOff_ = rough_ < ROUGH_OFF_G ? roughOff_ + dt : 0;
-    if (base_ != RATTLED && roughOn_ > 0.4f) base_ = RATTLED;
+    // Rough road: switch on after a sustained stretch of shaking, off after 1 s of smooth.
+    roughOn_ = rough_ > roughOnG_ ? roughOn_ + dt : 0;
+    roughOff_ = rough_ < roughOffG_ ? roughOff_ + dt : 0;
+    if (base_ != RATTLED && roughOn_ > roughHoldS_) base_ = RATTLED;
     if (base_ == RATTLED) {
       calmSinceMs_ = nowMs;
       if (roughOff_ > 1.0f) base_ = NEUTRAL;
@@ -231,18 +244,25 @@ class CarFace {
     if (base_ == NEUTRAL && calm > 6000) base_ = CONTENT;
     bool still = nowMs - lastActiveMs_ > STILL_MS;
     if (base_ == CONTENT && calm > 25000 && flash_ == MOOD_COUNT && !still) { flash(JOY, 1600); calmSinceMs_ = nowMs; }  // smooth driving!
-    if (nowMs - lastActiveMs_ > DROWSY_MS) { base_ = SLEEPY; if (isIdleAct(flash_)) flash_ = MOOD_COUNT; }
+    if (nowMs - lastActiveMs_ > DROWSY_MS) { base_ = SLEEPY; if (isCruiseAct(flash_)) flash_ = MOOD_COUNT; }
 
-    // Idle acts: once things have been still for a while, entertain itself
-    // every 20-40 s until it gets drowsy.
-    bool freeNow = still && queueLen_ == 0 && flash_ == MOOD_COUNT && (base_ == CONTENT || base_ == NEUTRAL);
-    if (!still) idleArmed_ = false;
-    else if (freeNow && !idleArmed_) { idleArmed_ = true; nextIdleMs_ = nowMs + 3000 + (uint32_t)(rnd() * 4000); }
-    else if (freeNow && (int32_t)(nowMs - nextIdleMs_) >= 0) {
-      Mood m = (Mood)(MUSIC + (int)(rnd() * IDLE_ACTS) % IDLE_ACTS);
-      if (m == lastIdle_) m = (Mood)(MUSIC + (m - MUSIC + 1) % IDLE_ACTS);
-      playIdle(m);
-      nextIdleMs_ = nowMs + 20000 + (uint32_t)(rnd() * 20000);
+    // Cruising acts: when nothing much has happened for a while it entertains
+    // itself. Parked: every 20-40 s. Driving steadily (no turn, braking or
+    // bump over 0.2 g for CRUISE_QUIET_MS): every 1-2 cruise gaps, and it
+    // doesn't nod off or daydream at the wheel.
+    bool cruising = !still && nowMs - quietSinceMs_ > CRUISE_QUIET_MS;
+    bool freeNow = (still || cruising) && queueLen_ == 0 && flash_ == MOOD_COUNT && (base_ == CONTENT || base_ == NEUTRAL);
+    if (!still && !cruising) cruiseArmed_ = false;
+    else if (freeNow && !cruiseArmed_) {
+      cruiseArmed_ = true;
+      nextCruiseMs_ = nowMs + (still ? 3000 + (uint32_t)(rnd() * 4000) : 5000 + (uint32_t)(rnd() * 10000));
+    }
+    else if (freeNow && (int32_t)(nowMs - nextCruiseMs_) >= 0) {
+      Mood m = (Mood)(MUSIC + (int)(rnd() * CRUISE_ACTS) % CRUISE_ACTS);
+      for (int tries = 0; tries < CRUISE_ACTS && (m == lastCruise_ || (!still && (m == DOZE || m == DREAM))); tries++)
+        m = (Mood)(MUSIC + (m - MUSIC + 1) % CRUISE_ACTS);
+      playCruise(m);
+      nextCruiseMs_ = nowMs + (still ? 20000 + (uint32_t)(rnd() * 20000) : cruiseGapMs_ + (uint32_t)(rnd() * cruiseGapMs_));
     }
   }
 
@@ -261,6 +281,7 @@ class CarFace {
   // Advance the animation by dt seconds without drawing (used for testing).
   void step(float dt) {
     t_ += dt;
+    surgeCur_ += (surge_ - surgeCur_) * fminf(1, dt * 8);
     runQueue();
     if (flash_ < MOOD_COUNT && t_ >= flashUntil_) flash_ = MOOD_COUNT;
     Mood m = mood();
@@ -327,7 +348,7 @@ class CarFace {
     float bob = asleep ? sinf(t_ * 6.2832f / 5.0f) * 1.3f : sinf(t_ * 6.2832f / 4.0f) * 0.7f;
     float fx = p[SPEED_FX];
     float cx = 64 + p[LOOK_X] + fx * sinf(t_ * 53) * 1.2f + shX_;
-    float cy = p[LOOK_Y] + bob + fx * sinf(t_ * 41 + 1) * 0.8f + shY_;
+    float cy = p[LOOK_Y] + bob + fx * sinf(t_ * 41 + 1) * 0.8f + shY_ - surgeCur_ * 5;
     // Music: nod down on every beat (100 BPM) and rock side to side.
     float beat = p[BEAT], tilt = 0;
     if (beat > 0.02f) {
@@ -414,8 +435,8 @@ class CarFace {
  private:
   enum StepKind : uint8_t { STEP_MOOD, STEP_FLASH, STEP_BLINK, STEP_GAZE };
   struct Step { float at; uint8_t kind; uint8_t mood; uint16_t ms; int8_t gx, gy; };
-  static const uint32_t STILL_MS = 8000, DROWSY_MS = 150000, SLEEP_MS = 30000;
-  static constexpr float ROUGH_ON_G = 0.10f, ROUGH_OFF_G = 0.07f, OOF_G = 0.6f;
+  static const uint32_t CRUISE_QUIET_MS = 15000, STILL_MS = 8000, DROWSY_MS = 150000, SLEEP_MS = 30000;
+  static constexpr float OOF_G = 0.6f;
 
   D& d_;
   float cur_[PARAM_COUNT], vel_[PARAM_COUNT];
@@ -436,13 +457,16 @@ class CarFace {
   float holdAcc_ = 0, holdBrk_ = 0, prevLon_ = 0;
   float shX_ = 0, shY_ = 0, shVx_ = 0, shVy_ = 0;
   float rough_ = 0, roughOn_ = 0, roughOff_ = 0;
+  float roughOnG_ = 0.20f, roughOffG_ = 0.14f, kickG_ = 0.08f, roughHoldS_ = 1.5f;
+  float surge_ = 0, surgeCur_ = 0;
+  uint32_t quietSinceMs_ = 0, cruiseGapMs_ = 45000;
   float moodT_ = 0, gazeHoldUntil_ = 0;   // seconds in the current mood; scripted gaze
-  bool idleArmed_ = false;
-  uint32_t nextIdleMs_ = 0;
-  Mood lastIdle_ = MOOD_COUNT;
+  bool cruiseArmed_ = false;
+  uint32_t nextCruiseMs_ = 0;
+  Mood lastCruise_ = MOOD_COUNT;
 
-  static const int IDLE_ACTS = MOOD_COUNT - MUSIC;
-  static bool isIdleAct(Mood m) { return m >= MUSIC && m < MOOD_COUNT; }
+  static const int CRUISE_ACTS = MOOD_COUNT - MUSIC;
+  static bool isCruiseAct(Mood m) { return m >= MUSIC && m < MOOD_COUNT; }
   static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
   static float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 
@@ -600,7 +624,7 @@ class CarFace {
     }
   }
 
-  // ---- scripted idle acts (SNEEZE onwards) ----
+  // ---- scripted cruising acts (SNEEZE onwards) ----
   // Each is a pure function of the seconds since it started, so it plays the
   // same at any frame rate: actTargets() poses the face, actFx() moves the
   // whole face or one eye, actGaze() aims the eyes, actBlink() times blinks,
@@ -919,21 +943,36 @@ class CarFace {
   }
 
   // Thick line with round caps.
+  // Rounded stroke from a to b. Each row's span is solved directly (two end
+  // circles plus the straight body) instead of testing every pixel.
   void capsule(float ax, float ay, float bx, float by, float r) {
     float dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
-    int x0 = (int)floorf(fminf(ax, bx) - r), x1 = (int)ceilf(fmaxf(ax, bx) + r);
     int y0 = (int)floorf(fminf(ay, by) - r), y1 = (int)ceilf(fmaxf(ay, by) + r);
+    if (y0 < 0) y0 = 0;
+    if (y1 > 63) y1 = 63;
+    float r2 = r * r, rL = r * sqrtf(L2);
     for (int y = y0; y <= y1; y++) {
-      float py = y + 0.5f;
-      int first = 999, last = -999;
-      for (int x = x0; x <= x1; x++) {
-        float px = x + 0.5f;
-        float t = L2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0;
-        t = clampf(t, 0, 1);
-        float qx = ax + t * dx - px, qy = ay + t * dy - py;
-        if (qx * qx + qy * qy <= r * r) { if (x < first) first = x; last = x; }
+      float py = y + 0.5f, lo = 1e9f, hi = -1e9f;
+      float ea = py - ay, eb = py - by;
+      float ha = r2 - ea * ea, hb = r2 - eb * eb;
+      if (ha >= 0) { float h = sqrtf(ha); lo = ax - h; hi = ax + h; }
+      if (hb >= 0) { float h = sqrtf(hb); if (bx - h < lo) lo = bx - h; if (bx + h > hi) hi = bx + h; }
+      if (L2 > 0) {
+        // body: 0 <= t <= 1 along the stroke, and within r of its centre line
+        float l = -1e9f, h = 1e9f; bool ok = true;
+        float c = ea * dy;                 // t*L2 = (x-ax)*dx + c
+        if (dx != 0) {
+          float xa = ax - c / dx, xb = ax + (L2 - c) / dx;
+          l = fminf(xa, xb); h = fmaxf(xa, xb);
+        } else if (c < 0 || c > L2) ok = false;
+        float e = ea * dx;                 // s*L = e - (x-ax)*dy
+        if (dy != 0) {
+          float xa = ax + (e - rL) / dy, xb = ax + (e + rL) / dy;
+          l = fmaxf(l, fminf(xa, xb)); h = fminf(h, fmaxf(xa, xb));
+        } else if (fabsf(e) > rL) ok = false;
+        if (ok && h >= l) { if (l < lo) lo = l; if (h > hi) hi = h; }
       }
-      if (last >= first) hspan(y, first + 0.5f, last + 0.5f);
+      if (hi >= lo) hspan(y, lo, hi);
     }
   }
 
